@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Labirinto do Caçador</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<style>
+body {
+    font-family: 'Comic Sans MS', sans-serif;
+    background: linear-gradient(to bottom, #1a1a1a, #000);
+    color: white;
+    text-align: center;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+}
+
+h1 {
+    margin-top: 20px;
+    color: #ffcc00;
+    text-shadow: 0 0 10px #ffcc00, 0 0 20px #fff;
+}
+
+p {
+    color: #ddd;
+    text-shadow: 0 0 5px #666;
+}
+
+#game-area {
+    width: 400px;
+    height: 400px;
+    margin: 20px auto;
+    position: relative;
+    background: linear-gradient(135deg, #333 25%, #222 25%, #222 50%, #333 50%, #333 75%, #222 75%);
+    background-size: 50px 50px;
+    border: 5px solid #fff;
+    box-shadow: 0 0 15px #ffcc00, 0 0 25px #fff;
+}
+
+#player {
+    width: 40px;
+    height: auto;
+    position: absolute;
+    top: 0;
+    left: 0;
+    transform: translate(-50%, -50%);
+}
+
+.point {
+    width: 10px;
+    height: 10px;
+    background: radial-gradient(circle, #fff 60%, #ffcc00 100%);
+    position: absolute;
+    border-radius: 50%;
+    animation: twinkle 1.5s infinite ease-in-out;
+}
+
+@keyframes twinkle {
+    0%, 100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.5;
+    }
+}
+
+.enemy {
+    width: 40px;
+    height: 40px;
+    position: absolute;
+    background-image: url('https://i.pinimg.com/originals/cf/58/e8/cf58e8533f5d3bdff75366d5ad5df046.gif');
+    background-size: cover;
+    background-position: center;
+    border-radius: 50%;
+    animation: pulse 1s infinite ease-in-out;
+    box-shadow: 0 0 10px red, 0 0 15px darkred;
+}
+
+@keyframes pulse {
+    0%, 100% {
+        transform: scale(1);
+    }
+
+    50% {
+        transform: scale(1.2);
+    }
+}
+
+.bullet {
+    width: 5px;
+    height: 10px;
+    background: linear-gradient(to top, yellow, red);
+    position: absolute;
+    border-radius: 50%;
+    box-shadow: 0 0 10px yellow, 0 0 15px red;
+}
+
+@keyframes explosion {
+    0% {
+        transform: scale(1);
+        opacity: 1;
+        box-shadow: 0 0 20px orange, 0 0 40px red;
+    }
+
+    50% {
+        transform: scale(2);
+        opacity: 0.7;
+        box-shadow: 0 0 30px yellow, 0 0 60px orange;
+    }
+
+    100% {
+        transform: scale(0);
+        opacity: 0;
+        box-shadow: 0 0 0px yellow, 0 0 0px red;
+    }
+}
+
+.exploding {
+    animation: explosion 0.5s ease-out forwards;
+}
+
+.particle {
+    width: 5px;
+    height: 5px;
+    background-color: orange;
+    position: absolute;
+    border-radius: 50%;
+    box-shadow: 0 0 5px yellow;
+    animation: particleMove 1s ease-out forwards;
+}
+
+@keyframes particleMove {
+    0% {
+        transform: translate(0, 0);
+        opacity: 1;
+    }
+
+    100% {
+        transform: translate(var(--x), var(--y));
+        opacity: 0;
+    }
+}
+
+</style>
+    <h1>Labirinto do Caçador</h1>
+    <p>Use as setas do teclado para mover o caçador, pressione espaço para atirar, colete pontos e derrote inimigos!</p>
+    <div id="game-area">
+        <img id="player" src="https://i.gifer.com/origin/24/2432cf5ff737ad7d1794a29d042eb02e_w200.gif" alt="Caçador">
+    </div>
+    <div id="info">
+        <p>Pontuação: <span id="score">0</span></p>
+    </div>
+    <script src="script.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    const gameArea = document.getElementById('game-area');
+    const player = document.getElementById('player');
+    const scoreDisplay = document.getElementById('score');
+    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+    let score = 0;
+    const playerSpeed = 5;
+    const bulletSpeed = 10;
+    const enemySpeed = 2;
+    let playerPosition = { x: 0, y: 0 };
+    const enemies = [];
+
+    // Função de som de coleta de pontos
+    function playPointCollectSound() {
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(600, audioContext.currentTime);
+        oscillator.frequency.exponentialRampToValueAtTime(1200, audioContext.currentTime + 0.2);
+        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.2);
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        oscillator.start();
+        oscillator.stop(audioContext.currentTime + 0.2);
+    }
+
+    // Função de gerar pontos
+    function generatePoints() {
+        for (let i = 0; i < 20; i++) {
+            const point = document.createElement('div');
+            point.classList.add('point');
+            point.style.left = `${Math.random() * 380}px`;
+            point.style.top = `${Math.random() * 380}px`;
+            gameArea.appendChild(point);
+        }
+    }
+
+    // Função de gerar inimigos
+    function generateEnemies(amount = 3, gifUrl = 'https://i.pinimg.com/originals/cf/58/e8/cf58e8533f5d3bdff75366d5ad5df046.gif') {
+        for (let i = 0; i < amount; i++) {
+            const enemy = document.createElement('div');
+            enemy.classList.add('enemy');
+            enemy.style.backgroundImage = `url('${gifUrl}')`;
+            enemy.style.left = `${Math.random() * 380}px`;
+            enemy.style.top = `${Math.random() * 380}px`;
+            gameArea.appendChild(enemy);
+            enemies.push(enemy);
+            moveEnemy(enemy);
+        }
+    }
+
+    // Ação após coletar todos os pontos
+    function onAllPointsCollected() {
+        // Muda a imagem dos inimigos
+        enemies.forEach(enemy => {
+            enemy.style.backgroundImage = "url('https://i.pinimg.com/originals/b6/08/77/b60877a20f69fd9ec29699f3e23a0f7c.gif')";
+        });
+        // Dobra a quantidade de inimigos
+        generateEnemies(enemies.length, 'https://i.pinimg.com/originals/b6/08/77/b60877a20f69fd9ec29699f3e23a0f7c.gif');
+        // Reexibe os pontos
+        generatePoints();
+    }
+
+    // Função para mover o jogador
+    document.addEventListener('keydown', (e) => {
+        const gameAreaRect = gameArea.getBoundingClientRect();
+        const playerRect = player.getBoundingClientRect();
+
+        if (e.key === 'ArrowUp' && playerRect.top > gameAreaRect.top) {
+            playerPosition.y -= playerSpeed;
+        } else if (e.key === 'ArrowDown' && playerRect.bottom < gameAreaRect.bottom) {
+            playerPosition.y += playerSpeed;
+        } else if (e.key === 'ArrowLeft' && playerRect.left > gameAreaRect.left) {
+            playerPosition.x -= playerSpeed;
+        } else if (e.key === 'ArrowRight' && playerRect.right < gameAreaRect.right) {
+            playerPosition.x += playerSpeed;
+        }
+
+        player.style.top = `${playerPosition.y}px`;
+        player.style.left = `${playerPosition.x}px`;
+
+        checkCollisions();
+    });
+
+    // Função para tiros do caçador
+    document.addEventListener('keydown', (e) => {
+        if (e.key === ' ') {
+            shootBullet();
+        }
+    });
+
+    // Função para atirar
+    function shootBullet() {
+        const bullet = document.createElement('div');
+        bullet.classList.add('bullet');
+        bullet.style.left = `${player.offsetLeft + 10}px`;
+        bullet.style.top = `${player.offsetTop}px`;
+        gameArea.appendChild(bullet);
+
+        const bulletInterval = setInterval(() => {
+            const bulletRect = bullet.getBoundingClientRect();
+            if (bulletRect.top < 0) {
+                bullet.remove();
+                clearInterval(bulletInterval);
+            } else {
+                bullet.style.top = `${bullet.offsetTop - bulletSpeed}px`;
+            }
+
+            const enemies = document.querySelectorAll('.enemy');
+            enemies.forEach((enemy) => {
+                if (isCollision(bullet, enemy)) {
+                    explodeEnemy(enemy);
+                    bullet.remove();
+                    clearInterval(bulletInterval);
+                    score++;
+                    scoreDisplay.textContent = score;
+                }
+            });
+        }, 20);
+    }
+
+    // Função para explosão do inimigo
+    function explodeEnemy(enemy) {
+        enemy.classList.add('exploding');
+        createParticles(enemy);
+        setTimeout(() => enemy.remove(), 500);
+    }
+
+    // Função para criar partículas de explosão
+    function createParticles(enemy) {
+        for (let i = 0; i < 20; i++) {
+            const particle = document.createElement('div');
+            particle.classList.add('particle');
+            particle.style.left = `${enemy.offsetLeft + 10}px`;
+            particle.style.top = `${enemy.offsetTop + 10}px`;
+            const x = (Math.random() - 0.5) * 100;
+            const y = (Math.random() - 0.5) * 100;
+            particle.style.setProperty('--x', `${x}px`);
+            particle.style.setProperty('--y', `${y}px`);
+            gameArea.appendChild(particle);
+            setTimeout(() => particle.remove(), 1000);
+        }
+    }
+
+    // Função para verificar colisões
+    function checkCollisions() {
+        const points = document.querySelectorAll('.point');
+        points.forEach((point) => {
+            if (isCollision(player, point)) {
+                point.remove();
+                score++;
+                scoreDisplay.textContent = score;
+
+                playPointCollectSound();
+
+                if (document.querySelectorAll('.point').length === 0) {
+                    onAllPointsCollected();
+                }
+            }
+        });
+    }
+
+    // Função para mover os inimigos
+    function moveEnemy(enemy) {
+        const interval = setInterval(() => {
+            const enemyRect = enemy.getBoundingClientRect();
+            const playerRect = player.getBoundingClientRect();
+
+            if (enemyRect.left < playerRect.left) {
+                enemy.style.left = `${enemy.offsetLeft + enemySpeed}px`;
+            } else if (enemyRect.left > playerRect.left) {
+                enemy.style.left = `${enemy.offsetLeft - enemySpeed}px`;
+            }
+
+            if (enemyRect.top < playerRect.top) {
+                enemy.style.top = `${enemy.offsetTop + enemySpeed}px`;
+            } else if (enemyRect.top > playerRect.top) {
+                enemy.style.top = `${enemy.offsetTop - enemySpeed}px`;
+            }
+
+            if (isCollision(enemy, player)) {
+                alert('Você foi capturado por um inimigo! Fim de jogo!');
+                clearInterval(interval);
+                location.reload();
+            }
+        }, 100);
+    }
+
+    // Função para verificar colisão
+    function isCollision(obj1, obj2) {
+        const rect1 = obj1.getBoundingClientRect();
+        const rect2 = obj2.getBoundingClientRect();
+        return !(
+            rect1.top > rect2.bottom ||
+            rect1.bottom < rect2.top ||
+            rect1.left > rect2.right ||
+            rect1.right < rect2.left
+        );
+    }
+
+    // Inicializa o jogo
+    generatePoints();
+    generateEnemies();
+});
+document.addEventListener('DOMContentLoaded', () => {
+    const gameArea = document.getElementById('game-area');
+    const player = document.getElementById('player');
+    const scoreDisplay = document.getElementById('score');
+    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+    let score = 0;
+    const playerSpeed = 5;
+    const bulletSpeed = 10;
+    const enemySpeed = 2;
+    let playerPosition = { x: 0, y: 0 };
+    const enemies = [];
+    let level = 1;
+
+    // Armazena a vida de cada inimigo (para o terceiro nível)
+    const enemyHealth = new Map();
+
+    // Som do tiro
+    function playShootSound() {
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        oscillator.type = 'square';
+        oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
+        gainNode.gain.setValueAtTime(0.5, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        oscillator.start();
+        oscillator.stop(audioContext.currentTime + 0.1);
+    }
+
+    // Efeito de explosão do caçador
+    function explodePlayer() {
+        player.src = ''; // Remove a imagem temporariamente
+        const explosion = document.createElement('div');
+        explosion.classList.add('exploding');
+        explosion.style.left = `${player.offsetLeft}px`;
+        explosion.style.top = `${player.offsetTop}px`;
+        gameArea.appendChild(explosion);
+
+        setTimeout(() => {
+            explosion.remove();
+            alert('Você foi capturado! Fim de jogo.');
+            location.reload(); // Reinicia o jogo
+        }, 500);
+    }
+
+    // Função para gerar inimigos
+    function generateEnemies(amount = 3, gifUrl = 'https://i.pinimg.com/originals/cf/58/e8/cf58e8533f5d3bdff75366d5ad5df046.gif') {
+        for (let i = 0; i < amount; i++) {
+            const enemy = document.createElement('div');
+            enemy.classList.add('enemy');
+            enemy.style.backgroundImage = `url('${gifUrl}')`;
+            enemy.style.left = `${Math.random() * 380}px`;
+            enemy.style.top = `${Math.random() * 380}px`;
+            gameArea.appendChild(enemy);
+
+            // No terceiro nível, cada inimigo começa com 2 pontos de vida
+            if (level === 3) {
+                enemyHealth.set(enemy, 2);
+            }
+
+            enemies.push(enemy);
+            moveEnemy(enemy);
+        }
+    }
+
+    // Função para verificar se o jogador passou de nível
+    function onAllPointsCollected() {
+        level++;
+        if (level === 3) {
+            enemies.forEach(enemy => {
+                enemy.style.backgroundImage = "url('https://i.imgur.com/4gSpybo.gif')";
+            });
+            generateEnemies(enemies.length, 'https://i.imgur.com/4gSpybo.gif'); // Dobra os inimigos
+        } else {
+            generateEnemies(enemies.length);
+        }
+        generatePoints();
+    }
+
+    // Função para tiros
+    function shootBullet() {
+        const bullet = document.createElement('div');
+        bullet.classList.add('bullet');
+        bullet.style.left = `${player.offsetLeft + 10}px`;
+        bullet.style.top = `${player.offsetTop}px`;
+        gameArea.appendChild(bullet);
+
+        playShootSound(); // Toca o som do tiro
+
+        const bulletInterval = setInterval(() => {
+            const bulletRect = bullet.getBoundingClientRect();
+            if (bulletRect.top < 0) {
+                bullet.remove();
+                clearInterval(bulletInterval);
+            } else {
+                bullet.style.top = `${bullet.offsetTop - bulletSpeed}px`;
+            }
+
+            enemies.forEach((enemy) => {
+                if (isCollision(bullet, enemy)) {
+                    if (level === 3) {
+                        const health = enemyHealth.get(enemy) - 1; // Reduz a vida do inimigo
+                        enemyHealth.set(enemy, health);
+                        if (health <= 0) {
+                            explodeEnemy(enemy);
+                        }
+                    } else {
+                        explodeEnemy(enemy);
+                    }
+                    bullet.remove();
+                    clearInterval(bulletInterval);
+                    score++;
+                    scoreDisplay.textContent = score;
+                }
+            });
+        }, 20);
+    }
+
+    // Função para criar partículas de explosão
+    function createParticles(enemy) {
+        for (let i = 0; i < 20; i++) {
+            const particle = document.createElement('div');
+            particle.classList.add('particle');
+            particle.style.left = `${enemy.offsetLeft + 10}px`;
+            particle.style.top = `${enemy.offsetTop + 10}px`;
+            const x = (Math.random() - 0.5) * 100;
+            const y = (Math.random() - 0.5) * 100;
+            particle.style.setProperty('--x', `${x}px`);
+            particle.style.setProperty('--y', `${y}px`);
+            gameArea.appendChild(particle);
+            setTimeout(() => particle.remove(), 1000);
+        }
+    }
+
+    // Função para explosão de inimigos
+    function explodeEnemy(enemy) {
+        enemy.classList.add('exploding');
+        createParticles(enemy);
+        setTimeout(() => enemy.remove(), 500);
+        enemies.splice(enemies.indexOf(enemy), 1);
+        enemyHealth.delete(enemy); // Remove o registro de saúde
+    }
+
+    // Detecta colisões
+    function checkCollisions() {
+        const points = document.querySelectorAll('.point');
+        points.forEach((point) => {
+            if (isCollision(player, point)) {
+                point.remove();
+                score++;
+                scoreDisplay.textContent = score;
+
+                playPointCollectSound(); // Som de coleta
+
+                if (document.querySelectorAll('.point').length === 0) {
+                    onAllPointsCollected();
+                }
+            }
+        });
+    }
+
+    // Move inimigos
+    function moveEnemy(enemy) {
+        const interval = setInterval(() => {
+            const enemyRect = enemy.getBoundingClientRect();
+            const playerRect = player.getBoundingClientRect();
+
+            if (enemyRect.left < playerRect.left) {
+                enemy.style.left = `${enemy.offsetLeft + enemySpeed}px`;
+            } else if (enemyRect.left > playerRect.left) {
+                enemy.style.left = `${enemy.offsetLeft - enemySpeed}px`;
+            }
+
+            if (enemyRect.top < playerRect.top) {
+                enemy.style.top = `${enemy.offsetTop + enemySpeed}px`;
+            } else if (enemyRect.top > playerRect.top) {
+                enemy.style.top = `${enemy.offsetTop - enemySpeed}px`;
+            }
+
+            if (isCollision(enemy, player)) {
+                clearInterval(interval);
+                explodePlayer(); // Explosão do jogador
+            }
+        }, 100);
+    }
+
+    // Verifica colisão
+    function isCollision(obj1, obj2) {
+        const rect1 = obj1.getBoundingClientRect();
+        const rect2 = obj2.getBoundingClientRect();
+        return !(
+            rect1.top > rect2.bottom ||
+            rect1.bottom < rect2.top ||
+            rect1.left > rect2.right ||
+            rect1.right < rect2.left
+        );
+    }
+
+    // Inicializa o jogo
+    generatePoints();
+    generateEnemies();
+});
+// Inicializa o contexto de áudio
+const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+// Função para criar um som de tiro
+function playShootSound() {
+    const oscillator = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
+
+    oscillator.type = 'square'; // Tipo de onda para som "digital"
+    oscillator.frequency.setValueAtTime(800, audioContext.currentTime); // Frequência inicial (800 Hz)
+    oscillator.frequency.exponentialRampToValueAtTime(300, audioContext.currentTime + 0.1); // Decai para 300 Hz
+
+    gainNode.gain.setValueAtTime(0.5, audioContext.currentTime); // Volume inicial
+    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1); // Desvanecer do volume
+
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+
+    oscillator.start();
+    oscillator.stop(audioContext.currentTime + 0.1); // Duração do som: 0.1 segundos
+}
+
+// Função para criar um som de explosão
+function playExplosionSound() {
+    const oscillator = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
+
+    oscillator.type = 'triangle'; // Tipo de onda mais "suave"
+    oscillator.frequency.setValueAtTime(100, audioContext.currentTime); // Frequência inicial (100 Hz)
+    oscillator.frequency.exponentialRampToValueAtTime(40, audioContext.currentTime + 0.5); // Frequência decai gradualmente
+
+    gainNode.gain.setValueAtTime(0.8, audioContext.currentTime); // Volume inicial
+    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5); // Desvanecer do volume
+
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+
+    oscillator.start();
+    oscillator.stop(audioContext.currentTime + 0.5); // Duração do som: 0.5 segundos
+}
+
+// Exemplo de como usar as funções
+document.addEventListener('keydown', (e) => {
+    if (e.key === ' ') {
+        playShootSound(); // Toca o som de tiro ao pressionar a barra de espaço
+    }
+});
+
+function onEnemyHit() {
+    playExplosionSound(); // Toca o som de explosão quando o inimigo for destruído
+}
+// Posição inicial corrigida da nave
+let playerPosition = { x: 180, y: 350 }; // Ajuste para centralizar
+
+// Atualizar o movimento contínuo
+function movePlayer() {
+    const gameAreaRect = gameArea.getBoundingClientRect();
+
+    if (keysPressed['ArrowUp'] && playerPosition.y > 0) {
+        playerPosition.y -= playerSpeed;
+    }
+    if (keysPressed['ArrowDown'] && playerPosition.y + player.offsetHeight < gameAreaRect.height) {
+        playerPosition.y += playerSpeed;
+    }
+    if (keysPressed['ArrowLeft'] && playerPosition.x > 0) {
+        playerPosition.x -= playerSpeed;
+    }
+    if (keysPressed['ArrowRight'] && playerPosition.x + player.offsetWidth < gameAreaRect.width) {
+        playerPosition.x += playerSpeed;
+    }
+
+    // Atualizar posição da nave
+    player.style.top = `${playerPosition.y}px`;
+    player.style.left = `${playerPosition.x}px`;
+
+    requestAnimationFrame(movePlayer); // Continua chamando para manter fluidez
+}
+
+// Chamando o movimento no início do jogo
+movePlayer();
+// Configuração para disparar com espaço
+document.addEventListener('keydown', (e) => {
+    keysPressed[e.key] = true;
+
+    // Disparar ao pressionar espaço
+    if (e.key === ' ' && !keysPressed['firing']) {
+        keysPressed['firing'] = true; // Previne múltiplos disparos
+        shootBullet();
+        setTimeout(() => {
+            keysPressed['firing'] = false;
+        }, 200); // Intervalo mínimo entre disparos
+    }
+});
+
+document.addEventListener('keyup', (e) => {
+    keysPressed[e.key] = false; // Libera a tecla pressionada
+});
+
+// Função de disparo
+function shootBullet() {
+    const bullet = document.createElement('div');
+    bullet.classList.add('bullet');
+    bullet.style.left = `${playerPosition.x + player.offsetWidth / 2 - 2.5}px`; // Centraliza o tiro
+    bullet.style.top = `${playerPosition.y}px`;
+    gameArea.appendChild(bullet);
+
+    playShootSound(); // Som de disparo
+
+    const bulletInterval = setInterval(() => {
+        const bulletRect = bullet.getBoundingClientRect();
+        if (bulletRect.top < 0) {
+            bullet.remove();
+            clearInterval(bulletInterval);
+        } else {
+            bullet.style.top = `${bullet.offsetTop - bulletSpeed}px`;
+        }
+
+        // Verifica colisões com inimigos
+        enemies.forEach((enemy) => {
+            if (isCollision(bullet, enemy)) {
+                const health = enemyHealth.get(enemy) - 1; // Reduz saúde
+                enemyHealth.set(enemy, health);
+                if (health <= 0) explodeEnemy(enemy);
+                bullet.remove();
+                clearInterval(bulletInterval);
+            }
+        });
+    }, 20);
+}
+// Objeto para rastrear teclas pressionadas
+const keysPressed = {};
+
+// Detectar quando uma tecla é pressionada
+document.addEventListener('keydown', (e) => {
+    keysPressed[e.key] = true; // Marca a tecla como pressionada
+});
+
+// Detectar quando uma tecla é liberada
+document.addEventListener('keyup', (e) => {
+    keysPressed[e.key] = false; // Marca a tecla como liberada
+});
+
+// Função para movimentar o caçador continuamente
+function movePlayer() {
+    const gameAreaRect = gameArea.getBoundingClientRect(); // Limites da área de jogo
+
+    // Ajusta a posição com base nas teclas pressionadas
+    if (keysPressed['ArrowUp'] && playerPosition.y > 0) {
+        playerPosition.y -= playerSpeed;
+    }
+    if (keysPressed['ArrowDown'] && playerPosition.y + player.offsetHeight < gameAreaRect.height) {
+        playerPosition.y += playerSpeed;
+    }
+    if (keysPressed['ArrowLeft'] && playerPosition.x > 0) {
+        playerPosition.x -= playerSpeed;
+    }
+    if (keysPressed['ArrowRight'] && playerPosition.x + player.offsetWidth < gameAreaRect.width) {
+        playerPosition.x += playerSpeed;
+    }
+
+    // Atualiza a posição visual do caçador
+    player.style.top = `${playerPosition.y}px`;
+    player.style.left = `${playerPosition.x}px`;
+
+    // Continua a chamada da função para manter o movimento fluido
+    requestAnimationFrame(movePlayer);
+}
+
+// Inicia a movimentação contínua
+movePlayer();
+
+</script>
+</body>
+</html>
